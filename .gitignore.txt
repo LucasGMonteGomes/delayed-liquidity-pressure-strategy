@@ -1,0 +1,24 @@
+# ========================================
+# TXSoft Quant Engine - Git Ignore Global
+# ========================================
+
+# Configurações de IDEs (IntelliJ, CLion, VSCode)
+.idea/
+.vscode/
+*.iml
+
+# Artefatos de Compilação do C++ (CMake/CLion)
+cmake-build-*/
+build/
+core-engine/vcpkg/
+core-engine/vcpkg_installed/
+*.o
+*.out
+
+# Artefatos de Compilação do Java (Maven/Spring)
+control-plane/target/
+*.jar
+
+# Arquivos de Sistema Operacional (Mac/Windows)
+.DS_Store
+Thumbs.db
