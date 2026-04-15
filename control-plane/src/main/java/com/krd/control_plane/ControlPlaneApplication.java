@@ -1,13 +1,10 @@
-package com.krd.control_plane;
+package com.krd.control_plane; // ou o nome do seu pacote
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 
-// Desliga a autoconfiguração do Banco de Dados temporariamente
-@SpringBootApplication(exclude = {DataSourceAutoConfiguration.class})
+@SpringBootApplication
 public class ControlPlaneApplication {
-
 	public static void main(String[] args) {
 		SpringApplication.run(ControlPlaneApplication.class, args);
 	}
