@@ -9,111 +9,365 @@
 #include <mutex>
 #include <iomanip>
 #include <sstream>
+#include <unordered_map>
+#include <cmath>
+#include <cstdint>
+
+#include "config/Config.h"
+#include "domain/MarketSnapshot.h"
+#include "domain/TradeTick.h"
+#include "domain/FlowSnapshot.h"
+#include "strategy/SignalEngineLite.h"
+#include "execution/PaperTradeEngine.h"
+#include "messaging/TradePublisher.h"
+#include "flow/AggressionTracker.h"
 
 using json = nlohmann::json;
 
 std::mutex zmq_mutex;
+std::mutex strategy_mutex;
 
-// Nova função analítica que processa o volume e calcula o Imbalance
-void broadcast_data(zmq::socket_t& publisher, const std::string& exchange, const std::string& symbol,
-                    const std::string& bid, const std::string& ask,
-                    double bid_qty, double ask_qty) {
+namespace {
+    std::int64_t nowMs() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    }
 
-    // 1. O Cérebro Quant: Cálculo de Pressão de Liquidez
-    double total_qty = bid_qty + ask_qty;
-    double imbalance = (total_qty > 0) ? (bid_qty / total_qty) * 100.0 : 50.0;
+    std::string makeKey(const std::string& exchange, const std::string& symbol) {
+        return exchange + "|" + symbol;
+    }
 
-    // 2. Alerta Visual para o Terminal
-    std::string alert = "[NEUTRO]";
-    if (imbalance >= 70.0) alert = "[🚀 COMPRA FORTE]";
-    else if (imbalance <= 30.0) alert = "[🩸 VENDA FORTE]";
+    double calculateMidPrice(double bidPrice, double askPrice) {
+        return (bidPrice + askPrice) / 2.0;
+    }
 
-    // 3. Formatação cravada em 2 casas decimais para o Imbalance
-    std::ostringstream imb_stream;
-    imb_stream << std::fixed << std::setprecision(2) << imbalance;
+    double calculateSpread(double bidPrice, double askPrice) {
+        return askPrice - bidPrice;
+    }
 
-    // 4. Novo Protocolo: CORRETORA|MOEDA|COMPRA|VENDA|IMBALANCE
-    std::string payload = exchange + "|" + symbol + "|" + bid + "|" + ask + "|" + imb_stream.str();
+    double calculateSpreadBps(double bidPrice, double askPrice) {
+        double midPrice = calculateMidPrice(bidPrice, askPrice);
+        if (midPrice <= 0.0) return 0.0;
+        return ((askPrice - bidPrice) / midPrice) * 10000.0;
+    }
 
-    std::lock_guard<std::mutex> lock(zmq_mutex);
-    zmq::message_t message(payload.size());
-    memcpy(message.data(), payload.c_str(), payload.size());
-    publisher.send(message, zmq::send_flags::none);
+    double calculateImbalancePct(double bidQty, double askQty) {
+        double totalQty = bidQty + askQty;
+        return (totalQty > 0.0) ? (bidQty / totalQty) * 100.0 : 50.0;
+    }
 
-    std::cout << "[MOTOR] -> " << payload << " \t" << alert << std::endl;
+    double calculateRecentMoveBps(double currentMidPrice, double previousMidPrice) {
+        if (previousMidPrice <= 0.0) return 0.0;
+        return ((currentMidPrice - previousMidPrice) / previousMidPrice) * 10000.0;
+    }
+
+    MarketSnapshot buildSnapshot(const std::string& exchange,
+                                 const std::string& symbol,
+                                 double bidPrice,
+                                 double askPrice,
+                                 double bidQty,
+                                 double askQty) {
+        MarketSnapshot snapshot;
+        snapshot.exchange = exchange;
+        snapshot.symbol = symbol;
+        snapshot.bidPrice = bidPrice;
+        snapshot.askPrice = askPrice;
+        snapshot.bidQty = bidQty;
+        snapshot.askQty = askQty;
+        snapshot.midPrice = calculateMidPrice(bidPrice, askPrice);
+        snapshot.spread = calculateSpread(bidPrice, askPrice);
+        snapshot.spreadBps = calculateSpreadBps(bidPrice, askPrice);
+        snapshot.imbalance = calculateImbalancePct(bidQty, askQty);
+        snapshot.timestampMs = nowMs();
+        return snapshot;
+    }
+
+    std::string signalSideToString(SignalSide side) {
+        switch (side) {
+            case SignalSide::LONG:
+                return "LONG";
+            case SignalSide::SHORT:
+                return "SHORT";
+            case SignalSide::HOLD:
+            default:
+                return "HOLD";
+        }
+    }
+
+    std::string exitReasonToString(ExitReason reason) {
+        switch (reason) {
+            case ExitReason::TAKE_PROFIT:
+                return "TAKE_PROFIT";
+            case ExitReason::STOP_LOSS:
+                return "STOP_LOSS";
+            case ExitReason::TIMEOUT:
+                return "TIMEOUT";
+            case ExitReason::INVALIDATION:
+                return "INVALIDATION";
+            case ExitReason::NONE:
+            default:
+                return "NONE";
+        }
+    }
+
+    AggressorSide parseBinanceAggressor(bool isBuyerMaker) {
+        // Se o comprador foi maker, então o agressor foi o vendedor
+        return isBuyerMaker ? AggressorSide::SELL : AggressorSide::BUY;
+    }
+
+    AggressorSide parseBybitAggressor(const std::string& side) {
+        // Bybit reporta "Buy" ou "Sell" do lado agressor
+        if (side == "Buy") return AggressorSide::BUY;
+        if (side == "Sell") return AggressorSide::SELL;
+        return AggressorSide::UNKNOWN;
+    }
+}
+
+void processSnapshot(const MarketSnapshot& snapshot,
+                     SignalEngineLite& signalEngine,
+                     PaperTradeEngine& paperTradeEngine,
+                     TradePublisher& tradePublisher,
+                     AggressionTracker& aggressionTracker,
+                     std::unordered_map<std::string, double>& lastMidPriceByKey) {
+    const std::string key = makeKey(snapshot.exchange, snapshot.symbol);
+
+    double previousMidPrice = 0.0;
+    auto it = lastMidPriceByKey.find(key);
+    if (it != lastMidPriceByKey.end()) {
+        previousMidPrice = it->second;
+    }
+
+    double recentMoveBps = calculateRecentMoveBps(snapshot.midPrice, previousMidPrice);
+    lastMidPriceByKey[key] = snapshot.midPrice;
+
+    FlowSnapshot flowSnapshot = aggressionTracker.getSnapshot(
+        snapshot.exchange, snapshot.symbol, snapshot.timestampMs
+    );
+
+    std::lock_guard<std::mutex> strategyLock(strategy_mutex);
+
+    // 1. Atualiza posição aberta primeiro
+    auto tradeResultOpt = paperTradeEngine.update(snapshot);
+    if (tradeResultOpt.has_value()) {
+        const auto& trade = tradeResultOpt.value();
+
+        {
+            std::lock_guard<std::mutex> zmqLock(zmq_mutex);
+            tradePublisher.publish(trade);
+        }
+
+        std::cout << std::fixed << std::setprecision(6)
+                  << "[TRADE CLOSED] "
+                  << trade.exchange << " "
+                  << trade.symbol << " "
+                  << signalSideToString(trade.side)
+                  << " entry=" << trade.entryPrice
+                  << " exit=" << trade.exitPrice
+                  << " reason=" << exitReasonToString(trade.exitReason)
+                  << " gross=" << trade.grossPnlPct << "%"
+                  << " fee=" << trade.feePct << "%"
+                  << " slippage=" << trade.slippagePct << "%"
+                  << " net=" << trade.netPnlPct << "%"
+                  << std::endl;
+    }
+
+    // 2. Se não houver posição aberta, tenta gerar novo sinal e abrir
+    if (!paperTradeEngine.hasOpenPosition()) {
+        SignalResult signal = signalEngine.evaluate(snapshot, flowSnapshot, recentMoveBps);
+
+        std::cout << std::fixed << std::setprecision(2)
+                  << "[SIGNAL] "
+                  << snapshot.exchange << " "
+                  << snapshot.symbol
+                  << " bid=" << snapshot.bidPrice
+                  << " ask=" << snapshot.askPrice
+                  << " imbalance=" << snapshot.imbalance
+                  << " spreadBps=" << snapshot.spreadBps
+                  << " recentMoveBps=" << recentMoveBps
+                  << " flowBias=" << signal.flowBias
+                  << " flowStrength=" << signal.flowStrength
+                  << " side=" << signalSideToString(signal.side)
+                  << " confidence=" << signal.confidence
+                  << " expectedMoveBps=" << signal.expectedMoveBps
+                  << " valid=" << (signal.isValid ? "true" : "false")
+                  << " reason=" << signal.reason
+                  << std::endl;
+
+        if (paperTradeEngine.tryOpenPosition(snapshot, signal)) {
+            const Position& pos = paperTradeEngine.getOpenPosition();
+
+            std::cout << std::fixed << std::setprecision(6)
+                      << "[TRADE OPEN] "
+                      << pos.exchange << " "
+                      << pos.symbol << " "
+                      << signalSideToString(pos.side)
+                      << " entry=" << pos.entryPrice
+                      << " target=" << pos.targetPrice
+                      << " stop=" << pos.stopPrice
+                      << " timeoutMs=" << pos.timeoutTimestampMs
+                      << std::endl;
+        }
+    }
 }
 
 int main() {
+    Config config;
+    SignalEngineLite signalEngine(config);
+    PaperTradeEngine paperTradeEngine(config);
+
+    // janela de 5 segundos para fluxo agressor
+    AggressionTracker aggressionTracker(5000);
+
     zmq::context_t context(1);
     zmq::socket_t publisher(context, zmq::socket_type::pub);
     publisher.bind("tcp://*:5555");
 
+    TradePublisher tradePublisher(publisher);
+
+    std::unordered_map<std::string, double> lastMidPriceByKey;
+
     ix::initNetSystem();
 
     // ==========================================
-    // 1. TURBINA BINANCE
+    // 1. BINANCE
     // ==========================================
     ix::WebSocket binance_ws;
-    binance_ws.setUrl("wss://stream.binance.com:9443/stream?streams=btcusdt@bookTicker/ethusdt@bookTicker");
+    binance_ws.setUrl(
+        "wss://stream.binance.com:9443/stream?streams="
+        "btcusdt@bookTicker/"
+        "ethusdt@bookTicker/"
+        "btcusdt@aggTrade/"
+        "ethusdt@aggTrade"
+    );
 
-    binance_ws.setOnMessageCallback([&publisher](const ix::WebSocketMessagePtr& msg) {
+    binance_ws.setOnMessageCallback([&](const ix::WebSocketMessagePtr& msg) {
         if (msg->type == ix::WebSocketMessageType::Open) {
-            std::cout << "[REDE] Binance Conectada. (Monitorando Pressao BTC e ETH)" << std::endl;
-        }
-        else if (msg->type == ix::WebSocketMessageType::Message) {
+            std::cout << "[REDE] Binance conectada." << std::endl;
+        } else if (msg->type == ix::WebSocketMessageType::Message) {
             try {
                 auto j = json::parse(msg->str);
-                if (j.contains("data")) {
-                    std::string symbol = j["data"]["s"];
-                    std::string bidPrice = j["data"]["b"];
-                    std::string askPrice = j["data"]["a"];
+                if (!j.contains("data")) return;
 
-                    // Extrai o volume e converte para decimal
-                    double bidQty = std::stod(std::string(j["data"]["B"]));
-                    double askQty = std::stod(std::string(j["data"]["A"]));
+                const auto& data = j["data"];
 
-                    broadcast_data(publisher, "BINANCE", symbol, bidPrice, askPrice, bidQty, askQty);
+                // BookTicker
+                if (data.contains("s") && data.contains("b") && data.contains("a") &&
+                    data.contains("B") && data.contains("A")) {
+                    std::string symbol = data["s"];
+                    double bidPrice = std::stod(std::string(data["b"]));
+                    double askPrice = std::stod(std::string(data["a"]));
+                    double bidQty = std::stod(std::string(data["B"]));
+                    double askQty = std::stod(std::string(data["A"]));
+
+                    MarketSnapshot snapshot = buildSnapshot(
+                        "BINANCE", symbol, bidPrice, askPrice, bidQty, askQty
+                    );
+
+                    processSnapshot(snapshot,
+                                    signalEngine,
+                                    paperTradeEngine,
+                                    tradePublisher,
+                                    aggressionTracker,
+                                    lastMidPriceByKey);
+                    return;
                 }
-            } catch (...) {}
+
+                // aggTrade
+                if (data.contains("s") && data.contains("p") && data.contains("q") && data.contains("m")) {
+                    TradeTick trade;
+                    trade.exchange = "BINANCE";
+                    trade.symbol = data["s"];
+                    trade.price = std::stod(std::string(data["p"]));
+                    trade.qty = std::stod(std::string(data["q"]));
+                    trade.aggressorSide = parseBinanceAggressor(static_cast<bool>(data["m"]));
+                    trade.timestampMs = nowMs();
+
+                    aggressionTracker.onTrade(trade);
+                    return;
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "[ERRO][BINANCE] " << e.what() << std::endl;
+            }
         }
     });
 
     // ==========================================
-    // 2. TURBINA BYBIT
+    // 2. BYBIT
     // ==========================================
     ix::WebSocket bybit_ws;
     bybit_ws.setUrl("wss://stream.bybit.com/v5/public/spot");
 
-    bybit_ws.setOnMessageCallback([&publisher, &bybit_ws](const ix::WebSocketMessagePtr& msg) {
+    bybit_ws.setOnMessageCallback([&](const ix::WebSocketMessagePtr& msg) {
         if (msg->type == ix::WebSocketMessageType::Open) {
-            std::cout << "[REDE] Bybit Conectada. Solicitando dados de volume..." << std::endl;
-            std::string sub_msg = "{\"op\": \"subscribe\", \"args\": [\"orderbook.1.BTCUSDT\", \"orderbook.1.ETHUSDT\"]}";
+            std::cout << "[REDE] Bybit conectada. Assinando orderbook e trades..." << std::endl;
+            std::string sub_msg =
+                "{\"op\":\"subscribe\",\"args\":["
+                "\"orderbook.1.BTCUSDT\","
+                "\"orderbook.1.ETHUSDT\","
+                "\"publicTrade.BTCUSDT\","
+                "\"publicTrade.ETHUSDT\""
+                "]}";
             bybit_ws.sendText(sub_msg);
-        }
-        else if (msg->type == ix::WebSocketMessageType::Message) {
+        } else if (msg->type == ix::WebSocketMessageType::Message) {
             try {
                 auto j = json::parse(msg->str);
-                if (j.contains("data") && j["data"].contains("b") && j["data"].contains("a")) {
-                    if (!j["data"]["b"].empty() && !j["data"]["a"].empty()) {
-                        std::string symbol = j["data"]["s"];
-                        std::string bidPrice = j["data"]["b"][0][0];
-                        std::string askPrice = j["data"]["a"][0][0];
 
-                        // Extrai o volume da segunda posição da matriz [preço, volume]
-                        double bidQty = std::stod(std::string(j["data"]["b"][0][1]));
-                        double askQty = std::stod(std::string(j["data"]["a"][0][1]));
+                if (!j.contains("topic") || !j.contains("data")) return;
 
-                        broadcast_data(publisher, "BYBIT", symbol, bidPrice, askPrice, bidQty, askQty);
-                    }
+                std::string topic = j["topic"];
+
+                // orderbook
+                if (topic.find("orderbook.") == 0) {
+                    if (!j["data"].contains("b") || !j["data"].contains("a")) return;
+                    if (j["data"]["b"].empty() || j["data"]["a"].empty()) return;
+
+                    std::string symbol = j["data"]["s"];
+                    double bidPrice = std::stod(std::string(j["data"]["b"][0][0]));
+                    double askPrice = std::stod(std::string(j["data"]["a"][0][0]));
+                    double bidQty = std::stod(std::string(j["data"]["b"][0][1]));
+                    double askQty = std::stod(std::string(j["data"]["a"][0][1]));
+
+                    MarketSnapshot snapshot = buildSnapshot(
+                        "BYBIT", symbol, bidPrice, askPrice, bidQty, askQty
+                    );
+
+                    processSnapshot(snapshot,
+                                    signalEngine,
+                                    paperTradeEngine,
+                                    tradePublisher,
+                                    aggressionTracker,
+                                    lastMidPriceByKey);
+                    return;
                 }
-            } catch (...) {}
+
+                // publicTrade
+                if (topic.find("publicTrade.") == 0) {
+                    for (const auto& item : j["data"]) {
+                        if (!item.contains("s") || !item.contains("p") || !item.contains("v") || !item.contains("S")) {
+                            continue;
+                        }
+
+                        TradeTick trade;
+                        trade.exchange = "BYBIT";
+                        trade.symbol = item["s"];
+                        trade.price = std::stod(std::string(item["p"]));
+                        trade.qty = std::stod(std::string(item["v"]));
+                        trade.aggressorSide = parseBybitAggressor(std::string(item["S"]));
+                        trade.timestampMs = nowMs();
+
+                        aggressionTracker.onTrade(trade);
+                    }
+                    return;
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "[ERRO][BYBIT] " << e.what() << std::endl;
+            }
         }
     });
 
-    // ==========================================
-    // IGNIÇÃO
-    // ==========================================
-    std::cout << "[SYSTEM] Analisador Quantitativo Iniciado..." << std::endl;
+    std::cout << "[SYSTEM] Core Engine v3-lite + Flow iniciado..." << std::endl;
+
     binance_ws.start();
     bybit_ws.start();
 

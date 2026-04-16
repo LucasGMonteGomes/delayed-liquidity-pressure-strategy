@@ -1,20 +1,33 @@
-cmake_minimum_required(VERSION 3.17)
+cmake_minimum_required(VERSION 3.20)
 project(core_engine)
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 1. Encontra os pacotes instalados pelo vcpkg (Agora com ZeroMQ)
 find_package(ixwebsocket CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(cppzmq CONFIG REQUIRED)
 
-# 2. Cria o executável
-add_executable(core_engine main.cpp)
+add_executable(core_engine
+        main.cpp
+        strategy/SignalEngineLite.cpp
+        execution/PaperTradeEngine.cpp
+        messaging/TradePublisher.cpp
+        domain/TradeTick.cpp
+        domain/TradeTick.h
+        domain/FlowSnapshot.cpp
+        domain/FlowSnapshot.h
+        flow/AggressionTracker.cpp
+        flow/AggressionTracker.h
+)
 
-# 3. Linka as bibliotecas principais
-target_link_libraries(core_engine PRIVATE ixwebsocket::ixwebsocket nlohmann_json::nlohmann_json cppzmq)
+target_include_directories(core_engine PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
 
-# 4. Força o Windows a usar o gerador nativo de criptografia (BCrypt)
-if (WIN32)
-    target_link_libraries(core_engine PRIVATE bcrypt)
-endif()
+target_link_libraries(core_engine PRIVATE
+        ixwebsocket::ixwebsocket
+        nlohmann_json::nlohmann_json
+        cppzmq
+        bcrypt
+)
