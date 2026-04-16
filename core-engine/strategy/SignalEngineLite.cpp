@@ -1,17 +1,16 @@
 #include "SignalEngineLite.h"
 
 #include <cmath>
+#include <sstream>
 
-SignalEngineLite::SignalEngineLite(const Config &config)
-    : config_(config) {
-}
+SignalEngineLite::SignalEngineLite(const Config& config)
+    : config_(config) {}
 
-SignalResult SignalEngineLite::evaluate(const MarketSnapshot &snapshot,
-                                        const FlowSnapshot &flowSnapshot,
+SignalResult SignalEngineLite::evaluate(const MarketSnapshot& snapshot,
+                                        const FlowSnapshot& flowSnapshot,
                                         double recentMoveBps) const {
     SignalResult result;
 
-    // Preenche contexto de fluxo no resultado
     result.flowBias = flowSnapshot.aggressionBias;
     result.flowStrength = flowSnapshot.totalAggressionQty;
 
@@ -35,71 +34,110 @@ SignalResult SignalEngineLite::evaluate(const MarketSnapshot &snapshot,
         return result;
     }
 
-    // 3. Cálculo de confiança e movimento esperado
+    // 3. Cálculo base
     const double confidence = calculateConfidence(snapshot, flowSnapshot, recentMoveBps);
     const double expectedMoveBps = calculateExpectedMoveBps(snapshot, flowSnapshot, recentMoveBps);
 
     result.confidence = confidence;
     result.expectedMoveBps = expectedMoveBps;
 
-    // 4. Regras LONG
+    // 4. Condições estruturais
     const bool bookLong = snapshot.imbalance >= config_.imbalanceLongThreshold;
+    const bool bookShort = snapshot.imbalance <= config_.imbalanceShortThreshold;
+
     const bool flowStrongEnough = flowSnapshot.totalAggressionQty >= config_.minFlowStrength;
     const bool flowLong = flowSnapshot.aggressionBias >= config_.minFlowBiasAbs;
+    const bool flowShort = flowSnapshot.aggressionBias <= -config_.minFlowBiasAbs;
 
+    const bool confidenceOk = confidence >= config_.minConfidence;
+    const bool expectedMoveOk = expectedMoveBps >= config_.minExpectedMoveBps;
+
+    // 5. LONG válido
     if (bookLong &&
         flowStrongEnough &&
         flowLong &&
-        confidence >= config_.minConfidence &&
-        expectedMoveBps >= config_.minExpectedMoveBps) {
+        confidenceOk &&
+        expectedMoveOk) {
+
         result.side = SignalSide::LONG;
         result.reason = "long signal: imbalance + strong aggressive buy flow + controlled spread + low recent move";
         result.isValid = true;
         return result;
     }
 
-    // 5. Regras SHORT
-    const bool bookShort = snapshot.imbalance <= config_.imbalanceShortThreshold;
-    const bool flowShort = flowSnapshot.aggressionBias <= -config_.minFlowBiasAbs;
-
+    // 6. SHORT válido
     if (bookShort &&
         flowStrongEnough &&
         flowShort &&
-        confidence >= config_.minConfidence &&
-        expectedMoveBps >= config_.minExpectedMoveBps) {
+        confidenceOk &&
+        expectedMoveOk) {
+
         result.side = SignalSide::SHORT;
-        result.reason =
-                "short signal: negative imbalance + strong aggressive sell flow + controlled spread + low recent move";
+        result.reason = "short signal: negative imbalance + strong aggressive sell flow + controlled spread + low recent move";
         result.isValid = true;
         return result;
     }
 
-    // 6. Sem trade
+    // 7. Diagnóstico detalhado
+    std::ostringstream reason;
+
+    if (!flowStrongEnough) {
+        reason << "flow too weak;";
+    }
+
+    if (!confidenceOk) {
+        reason << " confidence below min;";
+    }
+
+    if (!expectedMoveOk) {
+        reason << " expected move below min;";
+    }
+
+    if (bookLong && !flowLong && flowStrongEnough) {
+        reason << " book long but flow not confirming long;";
+    }
+
+    if (bookShort && !flowShort && flowStrongEnough) {
+        reason << " book short but flow not confirming short;";
+    }
+
+    if (bookLong && flowShort) {
+        reason << " book-flow conflict: long book vs short flow;";
+    }
+
+    if (bookShort && flowLong) {
+        reason << " book-flow conflict: short book vs long flow;";
+    }
+
+    if (!bookLong && !bookShort) {
+        reason << " imbalance not extreme enough;";
+    }
+
+    std::string finalReason = reason.str();
+    if (finalReason.empty()) {
+        finalReason = "no valid setup";
+    }
+
     result.side = SignalSide::HOLD;
-    result.reason = "no valid setup";
+    result.reason = finalReason;
     result.isValid = false;
     return result;
 }
 
-double SignalEngineLite::calculateConfidence(const MarketSnapshot &snapshot,
-                                             const FlowSnapshot &flowSnapshot,
+double SignalEngineLite::calculateConfidence(const MarketSnapshot& snapshot,
+                                             const FlowSnapshot& flowSnapshot,
                                              double recentMoveBps) const {
-    // Força do imbalance (0 a 1)
     const double imbalanceStrength = std::abs(snapshot.imbalance - 50.0) / 50.0;
 
-    // Força do fluxo (0 a 1)
     double flowStrength = std::abs(flowSnapshot.aggressionBias);
     if (flowStrength > 1.0) flowStrength = 1.0;
 
-    // Penaliza spread alto
     double spreadPenalty = snapshot.spreadBps / config_.maxSpreadBps;
     if (spreadPenalty > 1.0) spreadPenalty = 1.0;
 
-    // Penaliza mercado que já andou
     double movePenalty = std::abs(recentMoveBps) / config_.maxRecentMoveBps;
     if (movePenalty > 1.0) movePenalty = 1.0;
 
-    // Mistura book + flow
     double combinedStrength = (imbalanceStrength * 0.55) + (flowStrength * 0.45);
 
     double confidence = combinedStrength
@@ -112,15 +150,14 @@ double SignalEngineLite::calculateConfidence(const MarketSnapshot &snapshot,
     return confidence;
 }
 
-double SignalEngineLite::calculateExpectedMoveBps(const MarketSnapshot &snapshot,
-                                                  const FlowSnapshot &flowSnapshot,
+double SignalEngineLite::calculateExpectedMoveBps(const MarketSnapshot& snapshot,
+                                                  const FlowSnapshot& flowSnapshot,
                                                   double recentMoveBps) const {
     const double imbalanceStrength = std::abs(snapshot.imbalance - 50.0);
     const double flowStrength = std::abs(flowSnapshot.aggressionBias) * 20.0;
 
     double expectedMove = (imbalanceStrength * 0.5) + (flowStrength * 0.8);
 
-    // Penaliza se o mercado já andou
     expectedMove -= std::abs(recentMoveBps) * 0.5;
 
     if (expectedMove < 0.0) expectedMove = 0.0;

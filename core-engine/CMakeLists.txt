@@ -19,6 +19,14 @@ add_executable(core_engine
         domain/FlowSnapshot.h
         flow/AggressionTracker.cpp
         flow/AggressionTracker.h
+        domain/SignalCandidate.cpp
+        domain/SignalCandidate.h
+        persistence/SignalPersistenceFilter.cpp
+        persistence/SignalPersistenceFilter.h
+        domain/RegimeSnapshot.cpp
+        domain/RegimeSnapshot.h
+        regime/RegimeFilter.cpp
+        regime/RegimeFilter.h
 )
 
 target_include_directories(core_engine PRIVATE

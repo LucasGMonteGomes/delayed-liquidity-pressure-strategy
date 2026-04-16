@@ -19,14 +19,14 @@ struct Config {
 
     // ---------- FLOW FILTER ----------
     // volume agressor mínimo acumulado na janela
-    double minFlowStrength{0.25};
+    double minFlowStrength{0.05};
 
     // viés absoluto mínimo do fluxo (-1 a +1)
     double minFlowBiasAbs{0.35};
 
     // ---------- EXECUÇÃO PAPER ----------
     // alvo e stop em percentual
-    double targetPct{0.10};   // 0.10%
+    double targetPct{0.04};   // 0.04%
     double stopPct{0.07};     // 0.07%
 
     // tempo máximo da posição aberta

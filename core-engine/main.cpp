@@ -8,10 +8,8 @@
 #include <string>
 #include <mutex>
 #include <iomanip>
-#include <sstream>
 #include <unordered_map>
-#include <cmath>
-#include <cstdint>
+
 
 #include "config/Config.h"
 #include "domain/MarketSnapshot.h"
@@ -21,6 +19,9 @@
 #include "execution/PaperTradeEngine.h"
 #include "messaging/TradePublisher.h"
 #include "flow/AggressionTracker.h"
+#include "persistence/SignalPersistenceFilter.h"
+#include "domain/RegimeSnapshot.h"
+#include "regime/RegimeFilter.h"
 
 using json = nlohmann::json;
 
@@ -30,11 +31,11 @@ std::mutex strategy_mutex;
 namespace {
     std::int64_t nowMs() {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
-                   std::chrono::system_clock::now().time_since_epoch())
-            .count();
+                    std::chrono::system_clock::now().time_since_epoch())
+                .count();
     }
 
-    std::string makeKey(const std::string& exchange, const std::string& symbol) {
+    std::string makeKey(const std::string &exchange, const std::string &symbol) {
         return exchange + "|" + symbol;
     }
 
@@ -62,8 +63,8 @@ namespace {
         return ((currentMidPrice - previousMidPrice) / previousMidPrice) * 10000.0;
     }
 
-    MarketSnapshot buildSnapshot(const std::string& exchange,
-                                 const std::string& symbol,
+    MarketSnapshot buildSnapshot(const std::string &exchange,
+                                 const std::string &symbol,
                                  double bidPrice,
                                  double askPrice,
                                  double bidQty,
@@ -116,7 +117,7 @@ namespace {
         return isBuyerMaker ? AggressorSide::SELL : AggressorSide::BUY;
     }
 
-    AggressorSide parseBybitAggressor(const std::string& side) {
+    AggressorSide parseBybitAggressor(const std::string &side) {
         // Bybit reporta "Buy" ou "Sell" do lado agressor
         if (side == "Buy") return AggressorSide::BUY;
         if (side == "Sell") return AggressorSide::SELL;
@@ -129,6 +130,8 @@ void processSnapshot(const MarketSnapshot& snapshot,
                      PaperTradeEngine& paperTradeEngine,
                      TradePublisher& tradePublisher,
                      AggressionTracker& aggressionTracker,
+                     SignalPersistenceFilter& persistenceFilter,
+                     RegimeFilter& regimeFilter,
                      std::unordered_map<std::string, double>& lastMidPriceByKey) {
     const std::string key = makeKey(snapshot.exchange, snapshot.symbol);
 
@@ -145,12 +148,18 @@ void processSnapshot(const MarketSnapshot& snapshot,
         snapshot.exchange, snapshot.symbol, snapshot.timestampMs
     );
 
+    regimeFilter.onSnapshot(snapshot);
+
+    RegimeSnapshot regimeSnapshot = regimeFilter.getSnapshot(
+        snapshot.exchange, snapshot.symbol, snapshot.timestampMs
+    );
+
     std::lock_guard<std::mutex> strategyLock(strategy_mutex);
 
     // 1. Atualiza posição aberta primeiro
     auto tradeResultOpt = paperTradeEngine.update(snapshot);
     if (tradeResultOpt.has_value()) {
-        const auto& trade = tradeResultOpt.value();
+        const auto &trade = tradeResultOpt.value();
 
         {
             std::lock_guard<std::mutex> zmqLock(zmq_mutex);
@@ -158,23 +167,27 @@ void processSnapshot(const MarketSnapshot& snapshot,
         }
 
         std::cout << std::fixed << std::setprecision(6)
-                  << "[TRADE CLOSED] "
-                  << trade.exchange << " "
-                  << trade.symbol << " "
-                  << signalSideToString(trade.side)
-                  << " entry=" << trade.entryPrice
-                  << " exit=" << trade.exitPrice
-                  << " reason=" << exitReasonToString(trade.exitReason)
-                  << " gross=" << trade.grossPnlPct << "%"
-                  << " fee=" << trade.feePct << "%"
-                  << " slippage=" << trade.slippagePct << "%"
-                  << " net=" << trade.netPnlPct << "%"
-                  << std::endl;
+                << "[TRADE CLOSED] "
+                << trade.exchange << " "
+                << trade.symbol << " "
+                << signalSideToString(trade.side)
+                << " entry=" << trade.entryPrice
+                << " exit=" << trade.exitPrice
+                << " reason=" << exitReasonToString(trade.exitReason)
+                << " gross=" << trade.grossPnlPct << "%"
+                << " fee=" << trade.feePct << "%"
+                << " slippage=" << trade.slippagePct << "%"
+                << " net=" << trade.netPnlPct << "%"
+                << std::endl;
     }
 
-    // 2. Se não houver posição aberta, tenta gerar novo sinal e abrir
     if (!paperTradeEngine.hasOpenPosition()) {
         SignalResult signal = signalEngine.evaluate(snapshot, flowSnapshot, recentMoveBps);
+
+        bool persistenceApproved = false;
+        if (regimeSnapshot.tradable) {
+            persistenceApproved = persistenceFilter.shouldAllowEntry(snapshot, signal);
+        }
 
         std::cout << std::fixed << std::setprecision(2)
                   << "[SIGNAL] "
@@ -187,14 +200,21 @@ void processSnapshot(const MarketSnapshot& snapshot,
                   << " recentMoveBps=" << recentMoveBps
                   << " flowBias=" << signal.flowBias
                   << " flowStrength=" << signal.flowStrength
+                  << " regimeAvgSpread=" << regimeSnapshot.avgSpreadBps
+                  << " regimeRangeBps=" << regimeSnapshot.shortRangeBps
+                  << " regimeActivityBps=" << regimeSnapshot.activityBps
+                  << " regimeTradable=" << (regimeSnapshot.tradable ? "true" : "false")
                   << " side=" << signalSideToString(signal.side)
                   << " confidence=" << signal.confidence
                   << " expectedMoveBps=" << signal.expectedMoveBps
                   << " valid=" << (signal.isValid ? "true" : "false")
+                  << " persistenceApproved=" << (persistenceApproved ? "true" : "false")
                   << " reason=" << signal.reason
                   << std::endl;
 
-        if (paperTradeEngine.tryOpenPosition(snapshot, signal)) {
+        if (regimeSnapshot.tradable &&
+            persistenceApproved &&
+            paperTradeEngine.tryOpenPosition(snapshot, signal)) {
             const Position& pos = paperTradeEngine.getOpenPosition();
 
             std::cout << std::fixed << std::setprecision(6)
@@ -219,6 +239,9 @@ int main() {
     // janela de 5 segundos para fluxo agressor
     AggressionTracker aggressionTracker(5000);
 
+    SignalPersistenceFilter persistenceFilter(150, 3);
+
+    RegimeFilter regimeFilter(3000);
     zmq::context_t context(1);
     zmq::socket_t publisher(context, zmq::socket_type::pub);
     publisher.bind("tcp://*:5555");
@@ -241,7 +264,7 @@ int main() {
         "ethusdt@aggTrade"
     );
 
-    binance_ws.setOnMessageCallback([&](const ix::WebSocketMessagePtr& msg) {
+    binance_ws.setOnMessageCallback([&](const ix::WebSocketMessagePtr &msg) {
         if (msg->type == ix::WebSocketMessageType::Open) {
             std::cout << "[REDE] Binance conectada." << std::endl;
         } else if (msg->type == ix::WebSocketMessageType::Message) {
@@ -249,7 +272,7 @@ int main() {
                 auto j = json::parse(msg->str);
                 if (!j.contains("data")) return;
 
-                const auto& data = j["data"];
+                const auto &data = j["data"];
 
                 // BookTicker
                 if (data.contains("s") && data.contains("b") && data.contains("a") &&
@@ -269,6 +292,8 @@ int main() {
                                     paperTradeEngine,
                                     tradePublisher,
                                     aggressionTracker,
+                                    persistenceFilter,
+                                    regimeFilter,
                                     lastMidPriceByKey);
                     return;
                 }
@@ -286,7 +311,7 @@ int main() {
                     aggressionTracker.onTrade(trade);
                     return;
                 }
-            } catch (const std::exception& e) {
+            } catch (const std::exception &e) {
                 std::cerr << "[ERRO][BINANCE] " << e.what() << std::endl;
             }
         }
@@ -298,16 +323,16 @@ int main() {
     ix::WebSocket bybit_ws;
     bybit_ws.setUrl("wss://stream.bybit.com/v5/public/spot");
 
-    bybit_ws.setOnMessageCallback([&](const ix::WebSocketMessagePtr& msg) {
+    bybit_ws.setOnMessageCallback([&](const ix::WebSocketMessagePtr &msg) {
         if (msg->type == ix::WebSocketMessageType::Open) {
             std::cout << "[REDE] Bybit conectada. Assinando orderbook e trades..." << std::endl;
             std::string sub_msg =
-                "{\"op\":\"subscribe\",\"args\":["
-                "\"orderbook.1.BTCUSDT\","
-                "\"orderbook.1.ETHUSDT\","
-                "\"publicTrade.BTCUSDT\","
-                "\"publicTrade.ETHUSDT\""
-                "]}";
+                    "{\"op\":\"subscribe\",\"args\":["
+                    "\"orderbook.1.BTCUSDT\","
+                    "\"orderbook.1.ETHUSDT\","
+                    "\"publicTrade.BTCUSDT\","
+                    "\"publicTrade.ETHUSDT\""
+                    "]}";
             bybit_ws.sendText(sub_msg);
         } else if (msg->type == ix::WebSocketMessageType::Message) {
             try {
@@ -337,13 +362,15 @@ int main() {
                                     paperTradeEngine,
                                     tradePublisher,
                                     aggressionTracker,
+                                    persistenceFilter,
+                                    regimeFilter,
                                     lastMidPriceByKey);
                     return;
                 }
 
                 // publicTrade
                 if (topic.find("publicTrade.") == 0) {
-                    for (const auto& item : j["data"]) {
+                    for (const auto &item: j["data"]) {
                         if (!item.contains("s") || !item.contains("p") || !item.contains("v") || !item.contains("S")) {
                             continue;
                         }
@@ -360,7 +387,7 @@ int main() {
                     }
                     return;
                 }
-            } catch (const std::exception& e) {
+            } catch (const std::exception &e) {
                 std::cerr << "[ERRO][BYBIT] " << e.what() << std::endl;
             }
         }
