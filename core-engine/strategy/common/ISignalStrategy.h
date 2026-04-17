@@ -1,16 +1,11 @@
-//
-// Created by Lucas on 17/04/2026.
-//
+#pragma once
 
-#ifndef CORE_ENGINE_ISIGNALSTRATEGY_H
-#define CORE_ENGINE_ISIGNALSTRATEGY_H
-
-
+#include "../../domain/SignalResult.h"
+#include "StrategyContext.h"
 
 class ISignalStrategy {
+public:
+    virtual ~ISignalStrategy() = default;
 
+    virtual SignalResult evaluate(const StrategyContext& context) const = 0;
 };
-
-
-
-#endif //CORE_ENGINE_ISIGNALSTRATEGY_H
