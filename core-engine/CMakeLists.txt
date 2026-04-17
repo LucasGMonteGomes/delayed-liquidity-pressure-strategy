@@ -27,6 +27,12 @@ add_executable(core_engine
         domain/RegimeSnapshot.h
         regime/RegimeFilter.cpp
         regime/RegimeFilter.h
+        strategy/common/ISignalStrategy.cpp
+        strategy/common/ISignalStrategy.h
+        strategy/common/StrategyContext.cpp
+        strategy/common/StrategyContext.h
+        strategy/compression_breakout/CompressionBreakoutStrategy.cpp
+        strategy/compression_breakout/CompressionBreakoutStrategy.h
 )
 
 target_include_directories(core_engine PRIVATE

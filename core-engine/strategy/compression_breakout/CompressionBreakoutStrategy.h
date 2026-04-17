@@ -1,0 +1,16 @@
+//
+// Created by Lucas on 17/04/2026.
+//
+
+#ifndef CORE_ENGINE_COMPRESSIONBREAKOUTSTRATEGY_H
+#define CORE_ENGINE_COMPRESSIONBREAKOUTSTRATEGY_H
+
+
+
+class CompressionBreakoutStrategy {
+
+};
+
+
+
+#endif //CORE_ENGINE_COMPRESSIONBREAKOUTSTRATEGY_H
