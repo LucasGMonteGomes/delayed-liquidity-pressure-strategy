@@ -1,16 +1,17 @@
-//
-// Created by Lucas on 17/04/2026.
-//
+#pragma once
 
-#ifndef CORE_ENGINE_COMPRESSIONBREAKOUTSTRATEGY_H
-#define CORE_ENGINE_COMPRESSIONBREAKOUTSTRATEGY_H
+#include "../../config/Config.h"
+#include "../common/ISignalStrategy.h"
 
+class CompressionBreakoutStrategy : public ISignalStrategy {
+public:
+    explicit CompressionBreakoutStrategy(const Config& config);
 
+    SignalResult evaluate(const StrategyContext& context) const override;
 
-class CompressionBreakoutStrategy {
+private:
+    const Config& config_;
 
+    double calculateConfidence(const StrategyContext& context) const;
+    double calculateExpectedMoveBps(const StrategyContext& context) const;
 };
-
-
-
-#endif //CORE_ENGINE_COMPRESSIONBREAKOUTSTRATEGY_H

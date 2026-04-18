@@ -15,7 +15,8 @@
 #include "domain/MarketSnapshot.h"
 #include "domain/TradeTick.h"
 #include "domain/FlowSnapshot.h"
-#include "strategy/SignalEngineLite.h"
+#include "strategy/common/StrategyContext.h"
+#include "strategy/compression_breakout/CompressionBreakoutStrategy.h"
 #include "execution/PaperTradeEngine.h"
 #include "messaging/TradePublisher.h"
 #include "flow/AggressionTracker.h"
@@ -125,14 +126,14 @@ namespace {
     }
 }
 
-void processSnapshot(const MarketSnapshot& snapshot,
-                     SignalEngineLite& signalEngine,
-                     PaperTradeEngine& paperTradeEngine,
-                     TradePublisher& tradePublisher,
-                     AggressionTracker& aggressionTracker,
-                     SignalPersistenceFilter& persistenceFilter,
-                     RegimeFilter& regimeFilter,
-                     std::unordered_map<std::string, double>& lastMidPriceByKey) {
+void processSnapshot(const MarketSnapshot &snapshot,
+                     CompressionBreakoutStrategy &strategy,
+                     PaperTradeEngine &paperTradeEngine,
+                     TradePublisher &tradePublisher,
+                     AggressionTracker &aggressionTracker,
+                     SignalPersistenceFilter &persistenceFilter,
+                     RegimeFilter &regimeFilter,
+                     std::unordered_map<std::string, double> &lastMidPriceByKey) {
     const std::string key = makeKey(snapshot.exchange, snapshot.symbol);
 
     double previousMidPrice = 0.0;
@@ -151,12 +152,17 @@ void processSnapshot(const MarketSnapshot& snapshot,
     regimeFilter.onSnapshot(snapshot);
 
     RegimeSnapshot regimeSnapshot = regimeFilter.getSnapshot(
-        snapshot.exchange, snapshot.symbol, snapshot.timestampMs
+        snapshot.exchange, snapshot.symbol, snapshot.timestampMs, flowSnapshot
     );
+
+    StrategyContext context;
+    context.marketSnapshot = snapshot;
+    context.flowSnapshot = flowSnapshot;
+    context.regimeSnapshot = regimeSnapshot;
+    context.recentMoveBps = recentMoveBps;
 
     std::lock_guard<std::mutex> strategyLock(strategy_mutex);
 
-    // 1. Atualiza posição aberta primeiro
     auto tradeResultOpt = paperTradeEngine.update(snapshot);
     if (tradeResultOpt.has_value()) {
         const auto &trade = tradeResultOpt.value();
@@ -182,7 +188,7 @@ void processSnapshot(const MarketSnapshot& snapshot,
     }
 
     if (!paperTradeEngine.hasOpenPosition()) {
-        SignalResult signal = signalEngine.evaluate(snapshot, flowSnapshot, recentMoveBps);
+        SignalResult signal = strategy.evaluate(context);
 
         bool persistenceApproved = false;
         if (regimeSnapshot.tradable) {
@@ -190,50 +196,54 @@ void processSnapshot(const MarketSnapshot& snapshot,
         }
 
         std::cout << std::fixed << std::setprecision(2)
-                  << "[SIGNAL] "
-                  << snapshot.exchange << " "
-                  << snapshot.symbol
-                  << " bid=" << snapshot.bidPrice
-                  << " ask=" << snapshot.askPrice
-                  << " imbalance=" << snapshot.imbalance
-                  << " spreadBps=" << snapshot.spreadBps
-                  << " recentMoveBps=" << recentMoveBps
-                  << " flowBias=" << signal.flowBias
-                  << " flowStrength=" << signal.flowStrength
-                  << " regimeAvgSpread=" << regimeSnapshot.avgSpreadBps
-                  << " regimeRangeBps=" << regimeSnapshot.shortRangeBps
-                  << " regimeActivityBps=" << regimeSnapshot.activityBps
-                  << " regimeTradable=" << (regimeSnapshot.tradable ? "true" : "false")
-                  << " side=" << signalSideToString(signal.side)
-                  << " confidence=" << signal.confidence
-                  << " expectedMoveBps=" << signal.expectedMoveBps
-                  << " valid=" << (signal.isValid ? "true" : "false")
-                  << " persistenceApproved=" << (persistenceApproved ? "true" : "false")
-                  << " reason=" << signal.reason
-                  << std::endl;
+                << "[SIGNAL] "
+                << snapshot.exchange << " "
+                << snapshot.symbol
+                << " bid=" << snapshot.bidPrice
+                << " ask=" << snapshot.askPrice
+                << " imbalance=" << snapshot.imbalance
+                << " spreadBps=" << snapshot.spreadBps
+                << " recentMoveBps=" << recentMoveBps
+                << " flowBias=" << signal.flowBias
+                << " flowStrength=" << signal.flowStrength
+                << " regimeAvgSpread=" << regimeSnapshot.avgSpreadBps
+                << " regimeRangeBps=" << regimeSnapshot.shortRangeBps
+                << " regimeActivityBps=" << regimeSnapshot.activityBps
+                << " regimeImbalanceRange=" << regimeSnapshot.imbalanceRange
+                << " regimeHasRecentFlow=" << (regimeSnapshot.hasRecentFlow ? "true" : "false")
+                << " regimeTradable=" << (regimeSnapshot.tradable ? "true" : "false")
+                << " regimeSamples=" << regimeSnapshot.sampleCount
+                << " regimeReason=" << regimeSnapshot.reason
+                << " side=" << signalSideToString(signal.side)
+                << " confidence=" << signal.confidence
+                << " expectedMoveBps=" << signal.expectedMoveBps
+                << " valid=" << (signal.isValid ? "true" : "false")
+                << " persistenceApproved=" << (persistenceApproved ? "true" : "false")
+                << " reason=" << signal.reason
+                << std::endl;
 
         if (regimeSnapshot.tradable &&
             persistenceApproved &&
             paperTradeEngine.tryOpenPosition(snapshot, signal)) {
-            const Position& pos = paperTradeEngine.getOpenPosition();
+            const Position &pos = paperTradeEngine.getOpenPosition();
 
             std::cout << std::fixed << std::setprecision(6)
-                      << "[TRADE OPEN] "
-                      << pos.exchange << " "
-                      << pos.symbol << " "
-                      << signalSideToString(pos.side)
-                      << " entry=" << pos.entryPrice
-                      << " target=" << pos.targetPrice
-                      << " stop=" << pos.stopPrice
-                      << " timeoutMs=" << pos.timeoutTimestampMs
-                      << std::endl;
+                    << "[TRADE OPEN] "
+                    << pos.exchange << " "
+                    << pos.symbol << " "
+                    << signalSideToString(pos.side)
+                    << " entry=" << pos.entryPrice
+                    << " target=" << pos.targetPrice
+                    << " stop=" << pos.stopPrice
+                    << " timeoutMs=" << pos.timeoutTimestampMs
+                    << std::endl;
         }
     }
 }
 
 int main() {
     Config config;
-    SignalEngineLite signalEngine(config);
+    CompressionBreakoutStrategy strategy(config);
     PaperTradeEngine paperTradeEngine(config);
 
     // janela de 5 segundos para fluxo agressor
@@ -288,7 +298,7 @@ int main() {
                     );
 
                     processSnapshot(snapshot,
-                                    signalEngine,
+                                    strategy,
                                     paperTradeEngine,
                                     tradePublisher,
                                     aggressionTracker,
@@ -358,7 +368,7 @@ int main() {
                     );
 
                     processSnapshot(snapshot,
-                                    signalEngine,
+                                    strategy,
                                     paperTradeEngine,
                                     tradePublisher,
                                     aggressionTracker,

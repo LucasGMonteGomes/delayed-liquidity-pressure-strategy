@@ -26,7 +26,7 @@ struct Config {
 
     // ---------- EXECUÇÃO PAPER ----------
     // alvo e stop em percentual
-    double targetPct{0.04};   // 0.04%
+    double targetPct{0.02};   // 0.02%
     double stopPct{0.07};     // 0.07%
 
     // tempo máximo da posição aberta

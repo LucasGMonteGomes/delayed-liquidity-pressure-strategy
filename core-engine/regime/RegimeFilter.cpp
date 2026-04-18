@@ -14,35 +14,48 @@ void RegimeFilter::onSnapshot(const MarketSnapshot& snapshot) {
 
 RegimeSnapshot RegimeFilter::getSnapshot(const std::string& exchange,
                                          const std::string& symbol,
-                                         std::int64_t nowMs) {
+                                         std::int64_t nowMs,
+                                         const FlowSnapshot& flowSnapshot) {
     RegimeSnapshot result;
 
     const std::string key = makeKey(exchange, symbol);
     auto it = snapshotsByKey_.find(key);
     if (it == snapshotsByKey_.end()) {
+        result.reason = "window not initialized";
         return result;
     }
 
     auto& snapshots = it->second;
     pruneOldSnapshots(snapshots, nowMs);
 
+    result.sampleCount = static_cast<int>(snapshots.size());
+
     if (snapshots.empty()) {
+        result.reason = "window empty after prune";
         return result;
     }
 
     double spreadSum = 0.0;
+
     double minMid = snapshots.front().midPrice;
     double maxMid = snapshots.front().midPrice;
 
     double activitySum = 0.0;
     double previousMid = snapshots.front().midPrice;
 
+    double minImbalance = snapshots.front().imbalance;
+    double maxImbalance = snapshots.front().imbalance;
+
     for (std::size_t i = 0; i < snapshots.size(); ++i) {
         const auto& s = snapshots[i];
 
         spreadSum += s.spreadBps;
+
         minMid = std::min(minMid, s.midPrice);
         maxMid = std::max(maxMid, s.midPrice);
+
+        minImbalance = std::min(minImbalance, s.imbalance);
+        maxImbalance = std::max(maxImbalance, s.imbalance);
 
         if (i > 0 && previousMid > 0.0) {
             activitySum += std::abs((s.midPrice - previousMid) / previousMid) * 10000.0;
@@ -58,13 +71,34 @@ RegimeSnapshot RegimeFilter::getSnapshot(const std::string& exchange,
     }
 
     result.activityBps = activitySum;
+    result.imbalanceRange = maxImbalance - minImbalance;
+    result.hasRecentFlow = flowSnapshot.totalAggressionQty >= 0.05;
 
-    // Regras mínimas de regime para a v3-lite
+    const bool enoughSamples = result.sampleCount >= 3;
     const bool spreadOk = result.avgSpreadBps <= 1.5;
-    const bool rangeOk = result.shortRangeBps >= 0.5;
-    const bool activityOk = result.activityBps >= 0.5;
+    const bool imbalanceAlive = result.imbalanceRange >= 8.0;
+    const bool flowAlive = result.hasRecentFlow;
 
-    result.tradable = spreadOk && rangeOk && activityOk;
+    result.tradable = enoughSamples && spreadOk && (imbalanceAlive || flowAlive);
+
+    if (result.tradable) {
+        result.reason = "tradable";
+        return result;
+    }
+
+    if (!enoughSamples) {
+        result.reason = "not enough samples";
+    } else if (!spreadOk) {
+        result.reason = "spread too high";
+    } else if (!imbalanceAlive && !flowAlive) {
+        result.reason = "imbalance and flow too weak";
+    } else if (!imbalanceAlive) {
+        result.reason = "imbalance too static";
+    } else if (!flowAlive) {
+        result.reason = "flow too weak";
+    } else {
+        result.reason = "unknown regime rejection";
+    }
 
     return result;
 }

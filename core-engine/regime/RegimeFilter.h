@@ -7,6 +7,7 @@
 
 #include "../domain/MarketSnapshot.h"
 #include "../domain/RegimeSnapshot.h"
+#include "../domain/FlowSnapshot.h"
 
 class RegimeFilter {
 public:
@@ -15,8 +16,9 @@ public:
     void onSnapshot(const MarketSnapshot& snapshot);
 
     RegimeSnapshot getSnapshot(const std::string& exchange,
-                               const std::string& symbol,
-                               std::int64_t nowMs);
+                              const std::string& symbol,
+                              std::int64_t nowMs,
+                              const FlowSnapshot& flowSnapshot);
 
 private:
     std::int64_t windowMs_;
