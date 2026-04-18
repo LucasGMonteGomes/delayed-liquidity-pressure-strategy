@@ -23,6 +23,7 @@
 #include "persistence/SignalPersistenceFilter.h"
 #include "domain/RegimeSnapshot.h"
 #include "regime/RegimeFilter.h"
+#include "strategy/conflict_resolution/ConflictResolutionStrategy.h"
 
 using json = nlohmann::json;
 
@@ -126,14 +127,14 @@ namespace {
     }
 }
 
-void processSnapshot(const MarketSnapshot &snapshot,
-                     CompressionBreakoutStrategy &strategy,
-                     PaperTradeEngine &paperTradeEngine,
-                     TradePublisher &tradePublisher,
-                     AggressionTracker &aggressionTracker,
-                     SignalPersistenceFilter &persistenceFilter,
-                     RegimeFilter &regimeFilter,
-                     std::unordered_map<std::string, double> &lastMidPriceByKey) {
+void processSnapshot(const MarketSnapshot& snapshot,
+                     ConflictResolutionStrategy& strategy,
+                     PaperTradeEngine& paperTradeEngine,
+                     TradePublisher& tradePublisher,
+                     AggressionTracker& aggressionTracker,
+                     SignalPersistenceFilter& persistenceFilter,
+                     RegimeFilter& regimeFilter,
+                     std::unordered_map<std::string, double>& lastMidPriceByKey) {
     const std::string key = makeKey(snapshot.exchange, snapshot.symbol);
 
     double previousMidPrice = 0.0;
@@ -243,7 +244,7 @@ void processSnapshot(const MarketSnapshot &snapshot,
 
 int main() {
     Config config;
-    CompressionBreakoutStrategy strategy(config);
+    ConflictResolutionStrategy strategy(config);
     PaperTradeEngine paperTradeEngine(config);
 
     // janela de 5 segundos para fluxo agressor
