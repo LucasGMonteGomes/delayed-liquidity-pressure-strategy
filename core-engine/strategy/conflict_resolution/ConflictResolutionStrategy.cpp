@@ -88,7 +88,7 @@ SignalResult ConflictResolutionStrategy::evaluate(const StrategyContext &context
     }
 
     const std::int64_t conflictAgeMs = snapshot.timestampMs - state.detectedAtMs;
-    const std::int64_t maxConflictLifetimeMs = 15000;
+    const std::int64_t maxConflictLifetimeMs = 8000;
 
     if (conflictAgeMs > maxConflictLifetimeMs) {
         state.active = false;
@@ -102,30 +102,59 @@ SignalResult ConflictResolutionStrategy::evaluate(const StrategyContext &context
         return result;
     }
 
-    if (state.type == ConflictType::BOOK_LONG_FLOW_SHORT) {
-        const bool resolutionLong = bookLong && flowLong && flowStrongEnough;
+    const bool flowCollapsed = flow.totalAggressionQty < (config_.minFlowStrength * 0.5);
+    const bool neutralBook = snapshot.imbalance > 40.0 && snapshot.imbalance < 60.0;
 
-        if (resolutionLong && confidenceOk && expectedMoveOk) {
+    if (flowCollapsed) {
+        state.active = false;
+        state.type = ConflictType::NONE;
+        state.detectedAtMs = 0;
+        state.conflictStrength = 0.0;
+
+        result.side = SignalSide::HOLD;
+        result.reason = "conflict cancelled: flow collapsed";
+        result.isValid = false;
+        return result;
+    }
+
+    if (neutralBook) {
+        state.active = false;
+        state.type = ConflictType::NONE;
+        state.detectedAtMs = 0;
+        state.conflictStrength = 0.0;
+
+        result.side = SignalSide::HOLD;
+        result.reason = "conflict cancelled: book became neutral";
+        result.isValid = false;
+        return result;
+    }
+
+    if (state.type == ConflictType::BOOK_LONG_FLOW_SHORT) {
+        const bool longStructureLost = snapshot.imbalance <= 45.0;
+        const bool shortFlowStillDominant = flow.aggressionBias <= -config_.minFlowBiasAbs;
+        const bool resolutionShort = longStructureLost && shortFlowStillDominant && flowStrongEnough;
+
+        if (resolutionShort && confidenceOk && expectedMoveOk) {
             state.active = false;
             state.type = ConflictType::NONE;
             state.detectedAtMs = 0;
             state.conflictStrength = 0.0;
 
-            result.side = SignalSide::LONG;
-            result.reason = "resolution long confirmed: long book regained control with long flow";
+            result.side = SignalSide::SHORT;
+            result.reason = "resolution short confirmed: long structure collapsed and short flow won";
             result.isValid = true;
             return result;
         }
 
         std::ostringstream reason;
-        reason << "waiting for long conflict resolution;";
+        reason << "waiting for short resolution after long-book conflict;";
 
-        if (!bookLong) {
-            reason << " long book lost;";
+        if (!longStructureLost) {
+            reason << " long structure not broken yet;";
         }
 
-        if (!flowLong) {
-            reason << " long flow not confirmed;";
+        if (!shortFlowStillDominant) {
+            reason << " short flow no longer dominant;";
         }
 
         if (!flowStrongEnough) {
@@ -147,29 +176,31 @@ SignalResult ConflictResolutionStrategy::evaluate(const StrategyContext &context
     }
 
     if (state.type == ConflictType::BOOK_SHORT_FLOW_LONG) {
-        const bool resolutionShort = bookShort && flowShort && flowStrongEnough;
+        const bool shortStructureLost = snapshot.imbalance >= 55.0;
+        const bool longFlowStillDominant = flow.aggressionBias >= config_.minFlowBiasAbs;
+        const bool resolutionLong = shortStructureLost && longFlowStillDominant && flowStrongEnough;
 
-        if (resolutionShort && confidenceOk && expectedMoveOk) {
+        if (resolutionLong && confidenceOk && expectedMoveOk) {
             state.active = false;
             state.type = ConflictType::NONE;
             state.detectedAtMs = 0;
             state.conflictStrength = 0.0;
 
-            result.side = SignalSide::SHORT;
-            result.reason = "resolution short confirmed: short book regained control with short flow";
+            result.side = SignalSide::LONG;
+            result.reason = "resolution long confirmed: short structure collapsed and long flow won";
             result.isValid = true;
             return result;
         }
 
         std::ostringstream reason;
-        reason << "waiting for short conflict resolution;";
+        reason << "waiting for long resolution after short-book conflict;";
 
-        if (!bookShort) {
-            reason << " short book lost;";
+        if (!shortStructureLost) {
+            reason << " short structure not broken yet;";
         }
 
-        if (!flowShort) {
-            reason << " short flow not confirmed;";
+        if (!longFlowStillDominant) {
+            reason << " long flow no longer dominant;";
         }
 
         if (!flowStrongEnough) {

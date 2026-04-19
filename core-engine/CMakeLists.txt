@@ -37,6 +37,8 @@ add_executable(core_engine
         strategy/conflict_resolution/ConflictState.h
         strategy/conflict_resolution/ConflictResolutionStrategy.cpp
         strategy/conflict_resolution/ConflictResolutionStrategy.h
+        strategy/alignment_continuation/AlignmentContinuationStrategy.cpp
+        strategy/alignment_continuation/AlignmentContinuationStrategy.h
 )
 
 target_include_directories(core_engine PRIVATE

@@ -28,6 +28,12 @@ bool SignalPersistenceFilter::shouldAllowEntry(const MarketSnapshot& snapshot,
         candidate.active = true;
 
         candidatesByKey_[key] = candidate;
+
+        if (minPersistenceMs_ <= 0 && minConfirmations_ <= 1) {
+            resetCandidate(key);
+            return true;
+        }
+
         return false;
     }
 

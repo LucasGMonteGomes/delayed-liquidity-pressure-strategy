@@ -10,7 +10,6 @@
 #include <iomanip>
 #include <unordered_map>
 
-
 #include "config/Config.h"
 #include "domain/MarketSnapshot.h"
 #include "domain/TradeTick.h"
@@ -24,6 +23,7 @@
 #include "domain/RegimeSnapshot.h"
 #include "regime/RegimeFilter.h"
 #include "strategy/conflict_resolution/ConflictResolutionStrategy.h"
+#include "strategy/alignment_continuation/AlignmentContinuationStrategy.h"
 
 using json = nlohmann::json;
 
@@ -128,7 +128,7 @@ namespace {
 }
 
 void processSnapshot(const MarketSnapshot& snapshot,
-                     ConflictResolutionStrategy& strategy,
+                     AlignmentContinuationStrategy& strategy,
                      PaperTradeEngine& paperTradeEngine,
                      TradePublisher& tradePublisher,
                      AggressionTracker& aggressionTracker,
@@ -244,13 +244,13 @@ void processSnapshot(const MarketSnapshot& snapshot,
 
 int main() {
     Config config;
-    ConflictResolutionStrategy strategy(config);
+    AlignmentContinuationStrategy strategy(config);
     PaperTradeEngine paperTradeEngine(config);
 
     // janela de 5 segundos para fluxo agressor
     AggressionTracker aggressionTracker(5000);
 
-    SignalPersistenceFilter persistenceFilter(150, 3);
+    SignalPersistenceFilter persistenceFilter(0, 1);
 
     RegimeFilter regimeFilter(3000);
     zmq::context_t context(1);
