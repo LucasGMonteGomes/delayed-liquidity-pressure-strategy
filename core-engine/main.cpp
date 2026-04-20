@@ -15,15 +15,13 @@
 #include "domain/TradeTick.h"
 #include "domain/FlowSnapshot.h"
 #include "strategy/common/StrategyContext.h"
-#include "strategy/compression_breakout/CompressionBreakoutStrategy.h"
 #include "execution/PaperTradeEngine.h"
 #include "messaging/TradePublisher.h"
 #include "flow/AggressionTracker.h"
 #include "persistence/SignalPersistenceFilter.h"
 #include "domain/RegimeSnapshot.h"
-#include "regime/RegimeFilter.h"
-#include "strategy/conflict_resolution/ConflictResolutionStrategy.h"
-#include "strategy/alignment_continuation/AlignmentContinuationStrategy.h"
+#include "regime/RegimeFilter.h" 
+#include "strategy/pressure_expansion/PressureExpansionStrategy.h"
 
 using json = nlohmann::json;
 
@@ -128,7 +126,7 @@ namespace {
 }
 
 void processSnapshot(const MarketSnapshot& snapshot,
-                     AlignmentContinuationStrategy& strategy,
+                     PressureExpansionStrategy& strategy,
                      PaperTradeEngine& paperTradeEngine,
                      TradePublisher& tradePublisher,
                      AggressionTracker& aggressionTracker,
@@ -244,7 +242,7 @@ void processSnapshot(const MarketSnapshot& snapshot,
 
 int main() {
     Config config;
-    AlignmentContinuationStrategy strategy(config);
+    PressureExpansionStrategy strategy(config);
     PaperTradeEngine paperTradeEngine(config);
 
     // janela de 5 segundos para fluxo agressor

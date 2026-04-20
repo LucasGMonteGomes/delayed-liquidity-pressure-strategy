@@ -33,12 +33,13 @@ add_executable(core_engine
         strategy/common/StrategyContext.h
         strategy/compression_breakout/CompressionBreakoutStrategy.cpp
         strategy/compression_breakout/CompressionBreakoutStrategy.h
-        strategy/conflict_resolution/ConflictState.cpp
         strategy/conflict_resolution/ConflictState.h
         strategy/conflict_resolution/ConflictResolutionStrategy.cpp
         strategy/conflict_resolution/ConflictResolutionStrategy.h
         strategy/alignment_continuation/AlignmentContinuationStrategy.cpp
         strategy/alignment_continuation/AlignmentContinuationStrategy.h
+        strategy/pressure_expansion/PressureExpansionStrategy.cpp
+        strategy/pressure_expansion/PressureExpansionStrategy.h
 )
 
 target_include_directories(core_engine PRIVATE
