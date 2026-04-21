@@ -18,7 +18,8 @@ public:
 
     bool tryOpenPosition(const MarketSnapshot& snapshot, const SignalResult& signal);
 
-    std::optional<TradeResult> update(const MarketSnapshot& snapshot);
+    std::optional<TradeResult> update(const MarketSnapshot& snapshot,
+                                      const SignalResult& latestSignal);
 
 private:
     const Config& config_;
@@ -29,6 +30,8 @@ private:
 
     double buildTargetPrice(const MarketSnapshot& snapshot, SignalSide side) const;
     double buildStopPrice(const MarketSnapshot& snapshot, SignalSide side) const;
+
+    bool shouldExitEarly(const SignalResult& latestSignal) const;
 
     TradeResult closePosition(const MarketSnapshot& snapshot, ExitReason reason);
 };

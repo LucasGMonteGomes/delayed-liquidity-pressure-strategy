@@ -1,9 +1,9 @@
 #pragma once
 
-#include "../config/Config.h"
-#include "../domain/MarketSnapshot.h"
-#include "../domain/SignalResult.h"
-#include "../domain/FlowSnapshot.h"
+#include "../../config/Config.h"
+#include "../../domain/MarketSnapshot.h"
+#include "../../domain/SignalResult.h"
+#include "../../domain/FlowSnapshot.h"
 
 class SignalEngineLite {
 public:

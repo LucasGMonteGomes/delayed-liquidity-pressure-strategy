@@ -37,12 +37,12 @@ bool PaperTradeEngine::tryOpenPosition(const MarketSnapshot& snapshot, const Sig
     return true;
 }
 
-std::optional<TradeResult> PaperTradeEngine::update(const MarketSnapshot& snapshot) {
+std::optional<TradeResult> PaperTradeEngine::update(const MarketSnapshot& snapshot,
+                                                    const SignalResult& latestSignal) {
     if (!currentPosition_.isOpen) {
         return std::nullopt;
     }
 
-    // Segurança: só monitora a posição do mesmo ativo/corretora
     if (snapshot.exchange != currentPosition_.exchange || snapshot.symbol != currentPosition_.symbol) {
         return std::nullopt;
     }
@@ -63,6 +63,10 @@ std::optional<TradeResult> PaperTradeEngine::update(const MarketSnapshot& snapsh
         if (currentPrice >= currentPosition_.stopPrice) {
             return closePosition(snapshot, ExitReason::STOP_LOSS);
         }
+    }
+
+    if (shouldExitEarly(latestSignal)) {
+        return closePosition(snapshot, ExitReason::TIMEOUT);
     }
 
     if (snapshot.timestampMs >= currentPosition_.timeoutTimestampMs) {
@@ -120,6 +124,42 @@ double PaperTradeEngine::buildStopPrice(const MarketSnapshot& snapshot, SignalSi
     }
 
     return snapshot.midPrice;
+}
+
+bool PaperTradeEngine::shouldExitEarly(const SignalResult& latestSignal) const {
+    if (!currentPosition_.isOpen) {
+        return false;
+    }
+
+    if (currentPosition_.side == SignalSide::LONG) {
+        if (latestSignal.side == SignalSide::SHORT) {
+            return true;
+        }
+
+        if (latestSignal.flowBias <= -0.20) {
+            return true;
+        }
+
+        if (latestSignal.flowStrength < 0.20) {
+            return true;
+        }
+    }
+
+    if (currentPosition_.side == SignalSide::SHORT) {
+        if (latestSignal.side == SignalSide::LONG) {
+            return true;
+        }
+
+        if (latestSignal.flowBias >= 0.20) {
+            return true;
+        }
+
+        if (latestSignal.flowStrength < 0.20) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 TradeResult PaperTradeEngine::closePosition(const MarketSnapshot& snapshot, ExitReason reason) {

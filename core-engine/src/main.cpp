@@ -20,8 +20,13 @@
 #include "flow/AggressionTracker.h"
 #include "persistence/SignalPersistenceFilter.h"
 #include "domain/RegimeSnapshot.h"
-#include "regime/RegimeFilter.h" 
-#include "strategy/pressure_expansion/PressureExpansionStrategy.h"
+#include "regime/RegimeFilter.h"
+#include "execution/TradeStatsCollector.h"
+#include "execution/TradeCsvWriter.h"
+#include "execution/TestSummaryWriter.h"
+#include "execution/TestRunPaths.h"
+#include "execution/ExecutionQualityFilter.h"
+#include "strategy/flow_price_delay/FlowPriceDelayStrategy.h"
 
 using json = nlohmann::json;
 
@@ -125,14 +130,17 @@ namespace {
     }
 }
 
-void processSnapshot(const MarketSnapshot& snapshot,
-                     PressureExpansionStrategy& strategy,
-                     PaperTradeEngine& paperTradeEngine,
-                     TradePublisher& tradePublisher,
-                     AggressionTracker& aggressionTracker,
-                     SignalPersistenceFilter& persistenceFilter,
-                     RegimeFilter& regimeFilter,
-                     std::unordered_map<std::string, double>& lastMidPriceByKey) {
+void processSnapshot(const MarketSnapshot &snapshot,
+                     FlowPriceDelayStrategy &strategy,
+                     ExecutionQualityFilter &executionQualityFilter,
+                     PaperTradeEngine &paperTradeEngine,
+                     TradePublisher &tradePublisher,
+                     TradeStatsCollector &tradeStatsCollector,
+                     TradeCsvWriter &tradeCsvWriter,
+                     AggressionTracker &aggressionTracker,
+                     SignalPersistenceFilter &persistenceFilter,
+                     RegimeFilter &regimeFilter,
+                     std::unordered_map<std::string, double> &lastMidPriceByKey) {
     const std::string key = makeKey(snapshot.exchange, snapshot.symbol);
 
     double previousMidPrice = 0.0;
@@ -162,7 +170,9 @@ void processSnapshot(const MarketSnapshot& snapshot,
 
     std::lock_guard<std::mutex> strategyLock(strategy_mutex);
 
-    auto tradeResultOpt = paperTradeEngine.update(snapshot);
+    SignalResult signal = strategy.evaluate(context);
+
+    auto tradeResultOpt = paperTradeEngine.update(snapshot, signal);
     if (tradeResultOpt.has_value()) {
         const auto &trade = tradeResultOpt.value();
 
@@ -170,6 +180,9 @@ void processSnapshot(const MarketSnapshot& snapshot,
             std::lock_guard<std::mutex> zmqLock(zmq_mutex);
             tradePublisher.publish(trade);
         }
+
+        tradeStatsCollector.onTradeClosed(trade);
+        tradeCsvWriter.writeTrade(trade);
 
         std::cout << std::fixed << std::setprecision(6)
                 << "[TRADE CLOSED] "
@@ -186,64 +199,81 @@ void processSnapshot(const MarketSnapshot& snapshot,
                 << std::endl;
     }
 
-    if (!paperTradeEngine.hasOpenPosition()) {
-        SignalResult signal = strategy.evaluate(context);
+    bool persistenceApproved = false;
+    if (regimeSnapshot.tradable) {
+        persistenceApproved = persistenceFilter.shouldAllowEntry(snapshot, signal);
+    }
 
-        bool persistenceApproved = false;
-        if (regimeSnapshot.tradable) {
-            persistenceApproved = persistenceFilter.shouldAllowEntry(snapshot, signal);
-        }
+    bool executionApproved = false;
+    if (signal.isValid) {
+        executionApproved = executionQualityFilter.shouldAllowEntry(snapshot, signal);
+    }
 
-        std::cout << std::fixed << std::setprecision(2)
-                << "[SIGNAL] "
-                << snapshot.exchange << " "
-                << snapshot.symbol
-                << " bid=" << snapshot.bidPrice
-                << " ask=" << snapshot.askPrice
-                << " imbalance=" << snapshot.imbalance
-                << " spreadBps=" << snapshot.spreadBps
-                << " recentMoveBps=" << recentMoveBps
-                << " flowBias=" << signal.flowBias
-                << " flowStrength=" << signal.flowStrength
-                << " regimeAvgSpread=" << regimeSnapshot.avgSpreadBps
-                << " regimeRangeBps=" << regimeSnapshot.shortRangeBps
-                << " regimeActivityBps=" << regimeSnapshot.activityBps
-                << " regimeImbalanceRange=" << regimeSnapshot.imbalanceRange
-                << " regimeHasRecentFlow=" << (regimeSnapshot.hasRecentFlow ? "true" : "false")
-                << " regimeTradable=" << (regimeSnapshot.tradable ? "true" : "false")
-                << " regimeSamples=" << regimeSnapshot.sampleCount
-                << " regimeReason=" << regimeSnapshot.reason
-                << " side=" << signalSideToString(signal.side)
-                << " confidence=" << signal.confidence
-                << " expectedMoveBps=" << signal.expectedMoveBps
-                << " valid=" << (signal.isValid ? "true" : "false")
-                << " persistenceApproved=" << (persistenceApproved ? "true" : "false")
-                << " reason=" << signal.reason
+    std::cout << std::fixed << std::setprecision(2)
+            << "[SIGNAL] "
+            << snapshot.exchange << " "
+            << snapshot.symbol
+            << " bid=" << snapshot.bidPrice
+            << " ask=" << snapshot.askPrice
+            << " imbalance=" << snapshot.imbalance
+            << " spreadBps=" << snapshot.spreadBps
+            << " recentMoveBps=" << recentMoveBps
+            << " flowBias=" << signal.flowBias
+            << " flowStrength=" << signal.flowStrength
+            << " regimeAvgSpread=" << regimeSnapshot.avgSpreadBps
+            << " regimeRangeBps=" << regimeSnapshot.shortRangeBps
+            << " regimeActivityBps=" << regimeSnapshot.activityBps
+            << " regimeImbalanceRange=" << regimeSnapshot.imbalanceRange
+            << " regimeHasRecentFlow=" << (regimeSnapshot.hasRecentFlow ? "true" : "false")
+            << " regimeTradable=" << (regimeSnapshot.tradable ? "true" : "false")
+            << " regimeSamples=" << regimeSnapshot.sampleCount
+            << " regimeReason=" << regimeSnapshot.reason
+            << " side=" << signalSideToString(signal.side)
+            << " confidence=" << signal.confidence
+            << " expectedMoveBps=" << signal.expectedMoveBps
+            << " valid=" << (signal.isValid ? "true" : "false")
+            << " persistenceApproved=" << (persistenceApproved ? "true" : "false")
+            << " executionApproved=" << (executionApproved ? "true" : "false")
+            << " reason=" << signal.reason
+            << std::endl;
+
+    if (regimeSnapshot.tradable &&
+        persistenceApproved &&
+        executionApproved &&
+        paperTradeEngine.tryOpenPosition(snapshot, signal)) {
+        const Position &pos = paperTradeEngine.getOpenPosition();
+
+        std::cout << std::fixed << std::setprecision(6)
+                << "[TRADE OPEN] "
+                << pos.exchange << " "
+                << pos.symbol << " "
+                << signalSideToString(pos.side)
+                << " entry=" << pos.entryPrice
+                << " target=" << pos.targetPrice
+                << " stop=" << pos.stopPrice
+                << " timeoutMs=" << pos.timeoutTimestampMs
                 << std::endl;
-
-        if (regimeSnapshot.tradable &&
-            persistenceApproved &&
-            paperTradeEngine.tryOpenPosition(snapshot, signal)) {
-            const Position &pos = paperTradeEngine.getOpenPosition();
-
-            std::cout << std::fixed << std::setprecision(6)
-                    << "[TRADE OPEN] "
-                    << pos.exchange << " "
-                    << pos.symbol << " "
-                    << signalSideToString(pos.side)
-                    << " entry=" << pos.entryPrice
-                    << " target=" << pos.targetPrice
-                    << " stop=" << pos.stopPrice
-                    << " timeoutMs=" << pos.timeoutTimestampMs
-                    << std::endl;
-        }
     }
 }
 
 int main() {
     Config config;
-    PressureExpansionStrategy strategy(config);
+    FlowPriceDelayStrategy strategy(config);
+    ExecutionQualityFilter executionQualityFilter(config);
     PaperTradeEngine paperTradeEngine(config);
+
+    //Configuração de tempo de duração do teste
+    //const long testDurationMs = 60L * 60L * 1000L; // 1 hora
+    //const long testDurationMs = 30L * 60L * 1000L; // 30 minutos
+    //const long testDurationMs = 3L * 60L * 60L * 1000L; // 3 horas
+    const long testDurationMs = 1L * 60L * 1000L; // 1 minuto
+    const std::int64_t testStartMs = nowMs();
+    const std::int64_t testEndMs = testStartMs + testDurationMs;
+
+    const TestRunPaths testRunPaths = TestRunPathsBuilder::build(testDurationMs);
+
+    TradeStatsCollector tradeStatsCollector;
+    TradeCsvWriter tradeCsvWriter(testRunPaths.tradeResultsCsvPath);
 
     // janela de 5 segundos para fluxo agressor
     AggressionTracker aggressionTracker(5000);
@@ -298,8 +328,11 @@ int main() {
 
                     processSnapshot(snapshot,
                                     strategy,
+                                    executionQualityFilter,
                                     paperTradeEngine,
                                     tradePublisher,
+                                    tradeStatsCollector,
+                                    tradeCsvWriter,
                                     aggressionTracker,
                                     persistenceFilter,
                                     regimeFilter,
@@ -368,8 +401,11 @@ int main() {
 
                     processSnapshot(snapshot,
                                     strategy,
+                                    executionQualityFilter,
                                     paperTradeEngine,
                                     tradePublisher,
+                                    tradeStatsCollector,
+                                    tradeCsvWriter,
                                     aggressionTracker,
                                     persistenceFilter,
                                     regimeFilter,
@@ -407,9 +443,41 @@ int main() {
     binance_ws.start();
     bybit_ws.start();
 
-    while (true) {
+    while (nowMs() < testEndMs) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
+
+    binance_ws.stop();
+    bybit_ws.stop();
+
+    const bool summaryWritten =
+        TestSummaryWriter::writeSummary(testRunPaths.testSummaryCsvPath,
+                                        tradeStatsCollector,
+                                        testDurationMs,
+                                        testStartMs,
+                                        testEndMs);
+
+    std::cout << "\n[TEST OUTPUT]\n"
+          << "runDirectory=" << testRunPaths.runDirectory << "\n"
+          << "tradeResultsCsvPath=" << testRunPaths.tradeResultsCsvPath << "\n"
+          << "testSummaryCsvPath=" << testRunPaths.testSummaryCsvPath << "\n";
+
+    std::cout << "\n[TEST SUMMARY]\n"
+
+            << "durationMs=" << testDurationMs << "\n"
+            << "totalTrades=" << tradeStatsCollector.getTotalTrades() << "\n"
+            << "takeProfitCount=" << tradeStatsCollector.getTakeProfitCount() << "\n"
+            << "stopLossCount=" << tradeStatsCollector.getStopLossCount() << "\n"
+            << "timeoutCount=" << tradeStatsCollector.getTimeoutCount() << "\n"
+            << "winCount=" << tradeStatsCollector.getWinCount() << "\n"
+            << "lossCount=" << tradeStatsCollector.getLossCount() << "\n"
+            << "grossPnlSumPct=" << tradeStatsCollector.getGrossPnlSumPct() << "\n"
+            << "netPnlSumPct=" << tradeStatsCollector.getNetPnlSumPct() << "\n"
+            << "winRatePct=" << tradeStatsCollector.getWinRatePct() << "\n"
+            << "averageNetPnlPct=" << tradeStatsCollector.getAverageNetPnlPct() << "\n"
+            << "tradeCsvOpen=" << (tradeCsvWriter.isOpen() ? "true" : "false") << "\n"
+            << "summaryWritten=" << (summaryWritten ? "true" : "false") << "\n"
+            << std::endl;
 
     ix::uninitNetSystem();
     return 0;

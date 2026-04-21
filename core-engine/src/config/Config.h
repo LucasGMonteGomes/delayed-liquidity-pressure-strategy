@@ -26,14 +26,13 @@ struct Config {
 
     // ---------- EXECUÇÃO PAPER ----------
     // alvo e stop em percentual
-    double targetPct{0.12};   // 0.12%
-    double stopPct{0.08};     // 0.08%
+    double targetPct{0.12};
+    double stopPct{0.05};
 
-    // tempo máximo da posição aberta
-    long timeoutMs{90000};    // 90 segundos
+    long timeoutMs{120000};// 90 segundos
 
     // ---------- CUSTOS ----------
     // taxas e slippage simulados, em percentual
-    double feePctPerSide{0.04};       // 0.04% por lado
-    double slippagePctPerSide{0.01};  // 0.01% por lado
+    double feePctPerSide{0.04}; // 0.04% por lado
+    double slippagePctPerSide{0.01}; // 0.01% por lado
 };
