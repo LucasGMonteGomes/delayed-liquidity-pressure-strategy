@@ -10,38 +10,33 @@ find_package(cppzmq CONFIG REQUIRED)
 
 add_executable(core_engine
         src/main.cpp
-        src/strategy/SignalEngineLite.cpp
+        src/strategy/signal_engine/SignalEngineLite.cpp
         src/execution/PaperTradeEngine.cpp
         src/messaging/TradePublisher.cpp
+
         src/domain/TradeTick.cpp
         src/domain/TradeTick.h
         src/domain/FlowSnapshot.cpp
         src/domain/FlowSnapshot.h
-        src/flow/AggressionTracker.cpp
-        src/flow/AggressionTracker.h
         src/domain/SignalCandidate.cpp
         src/domain/SignalCandidate.h
-        src/persistence/SignalPersistenceFilter.cpp
-        src/persistence/SignalPersistenceFilter.h
         src/domain/RegimeSnapshot.cpp
         src/domain/RegimeSnapshot.h
+
+        src/flow/AggressionTracker.cpp
+        src/flow/AggressionTracker.h
+
+        src/persistence/SignalPersistenceFilter.cpp
+        src/persistence/SignalPersistenceFilter.h
+
         src/regime/RegimeFilter.cpp
         src/regime/RegimeFilter.h
+
         src/strategy/common/ISignalStrategy.cpp
         src/strategy/common/ISignalStrategy.h
         src/strategy/common/StrategyContext.cpp
         src/strategy/common/StrategyContext.h
-        src/strategy/compression_breakout/CompressionBreakoutStrategy.cpp
-        src/strategy/compression_breakout/CompressionBreakoutStrategy.h
-        src/strategy/conflict_resolution/ConflictState.h
-        src/strategy/conflict_resolution/ConflictResolutionStrategy.cpp
-        src/strategy/conflict_resolution/ConflictResolutionStrategy.h
-        src/strategy/alignment_continuation/AlignmentContinuationStrategy.cpp
-        src/strategy/alignment_continuation/AlignmentContinuationStrategy.h
-        src/strategy/pressure_expansion/PressureExpansionStrategy.cpp
-        src/strategy/pressure_expansion/PressureExpansionStrategy.h
-        src/strategy/flow_price_delay/FlowPriceDelayStrategy.cpp
-        src/strategy/flow_price_delay/FlowPriceDelayStrategy.h
+
         src/execution/ExecutionQualityFilter.cpp
         src/execution/ExecutionQualityFilter.h
         src/execution/TradeStatsCollector.cpp
@@ -52,6 +47,9 @@ add_executable(core_engine
         src/execution/TestSummaryWriter.h
         src/execution/TestRunPaths.cpp
         src/execution/TestRunPaths.h
+
+        src/strategy/intraday_trend_continuation/IntradayTrendContinuationStrategy.cpp
+        src/strategy/intraday_trend_continuation/IntradayTrendContinuationStrategy.h
 )
 
 target_include_directories(core_engine PRIVATE

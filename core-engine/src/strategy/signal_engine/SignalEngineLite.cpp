@@ -1,4 +1,4 @@
-#include "../SignalEngineLite.h"
+#include "SignalEngineLite.h"
 
 #include <cmath>
 #include <sstream>
