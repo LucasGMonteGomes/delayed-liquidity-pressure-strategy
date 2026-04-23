@@ -26,7 +26,7 @@ double ExecutionQualityFilter::estimateRequiredMoveBps(const MarketSnapshot& sna
     const double totalCostBps = estimateTotalCostBps(snapshot);
 
     // buffer econômico mínimo acima do custo
-    const double safetyBufferBps = 12.0;
+    const double safetyBufferBps = 8.0;
 
     return totalCostBps + safetyBufferBps;
 }

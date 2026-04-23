@@ -48,8 +48,12 @@ add_executable(core_engine
         src/execution/TestRunPaths.cpp
         src/execution/TestRunPaths.h
 
-        src/strategy/intraday_trend_continuation/IntradayTrendContinuationStrategy.cpp
-        src/strategy/intraday_trend_continuation/IntradayTrendContinuationStrategy.h
+        src/strategy/regime_hold_continuation/RegimeHoldContinuationStrategy.cpp
+        src/strategy/regime_hold_continuation/RegimeHoldContinuationStrategy.h
+        src/strategy/archive/break_hold_continuation/BreakHoldContinuationStrategy.cpp
+        src/strategy/archive/break_hold_continuation/BreakHoldContinuationStrategy.h
+        src/strategy/breakout_confirmation/BreakoutConfirmationStrategy.cpp
+        src/strategy/breakout_confirmation/BreakoutConfirmationStrategy.h
 )
 
 target_include_directories(core_engine PRIVATE

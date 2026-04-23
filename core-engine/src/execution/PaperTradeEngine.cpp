@@ -66,7 +66,7 @@ std::optional<TradeResult> PaperTradeEngine::update(const MarketSnapshot& snapsh
     }
 
     if (shouldExitEarly(latestSignal)) {
-        return closePosition(snapshot, ExitReason::TIMEOUT);
+        return closePosition(snapshot, ExitReason::INVALIDATION);
     }
 
     if (snapshot.timestampMs >= currentPosition_.timeoutTimestampMs) {
@@ -132,29 +132,13 @@ bool PaperTradeEngine::shouldExitEarly(const SignalResult& latestSignal) const {
     }
 
     if (currentPosition_.side == SignalSide::LONG) {
-        if (latestSignal.side == SignalSide::SHORT) {
-            return true;
-        }
-
-        if (latestSignal.flowBias <= -0.20) {
-            return true;
-        }
-
-        if (latestSignal.flowStrength < 0.20) {
+        if (latestSignal.flowBias < 0.05) {
             return true;
         }
     }
 
     if (currentPosition_.side == SignalSide::SHORT) {
-        if (latestSignal.side == SignalSide::LONG) {
-            return true;
-        }
-
-        if (latestSignal.flowBias >= 0.20) {
-            return true;
-        }
-
-        if (latestSignal.flowStrength < 0.20) {
+        if (latestSignal.flowBias > -0.05) {
             return true;
         }
     }

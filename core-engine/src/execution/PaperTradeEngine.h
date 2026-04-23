@@ -13,7 +13,6 @@ public:
     explicit PaperTradeEngine(const Config& config);
 
     bool hasOpenPosition() const;
-
     const Position& getOpenPosition() const;
 
     bool tryOpenPosition(const MarketSnapshot& snapshot, const SignalResult& signal);

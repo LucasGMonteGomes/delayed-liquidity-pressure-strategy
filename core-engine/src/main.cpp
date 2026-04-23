@@ -26,7 +26,7 @@
 #include "execution/TestSummaryWriter.h"
 #include "execution/TestRunPaths.h"
 #include "execution/ExecutionQualityFilter.h"
-#include "strategy/intraday_trend_continuation/IntradayTrendContinuationStrategy.h"
+#include "strategy/breakout_confirmation/BreakoutConfirmationStrategy.h"
 
 using json = nlohmann::json;
 
@@ -131,7 +131,7 @@ namespace {
 }
 
 void processSnapshot(const MarketSnapshot &snapshot,
-                     IntradayTrendContinuationStrategy &strategy,
+                     BreakoutConfirmationStrategy &strategy,
                      ExecutionQualityFilter &executionQualityFilter,
                      PaperTradeEngine &paperTradeEngine,
                      TradePublisher &tradePublisher,
@@ -258,17 +258,17 @@ void processSnapshot(const MarketSnapshot &snapshot,
 
 int main() {
     Config config;
-    IntradayTrendContinuationStrategy strategy(config);
+    BreakoutConfirmationStrategy strategy(config);
     ExecutionQualityFilter executionQualityFilter(config);
     PaperTradeEngine paperTradeEngine(config);
 
     //Configuração de tempo de duração do teste
     //const long testDurationMs = 10L * 60L * 1000L; // 10 minutos
-    const long testDurationMs = 15L * 60L * 1000L; // 15 minutos
+    //const long testDurationMs = 15L * 60L * 1000L; // 15 minutos
+    //const long testDurationMs = 20L * 60L * 1000L; // 20 minutos
     //const long testDurationMs = 30L * 60L * 1000L; // 30 minutos
     //const long testDurationMs = 60L * 60L * 1000L; // 1 hora
-    //const long testDurationMs = 3L * 60L * 60L * 1000L; // 3 horas
-
+    const long testDurationMs = 3L * 60L * 60L * 1000L; // 3 horas
 
     const std::int64_t testStartMs = nowMs();
     const std::int64_t testEndMs = testStartMs + testDurationMs;

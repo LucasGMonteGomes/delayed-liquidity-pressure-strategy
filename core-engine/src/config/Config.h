@@ -1,37 +1,24 @@
 #pragma once
 
+#pragma once
+
 struct Config {
-    // ---------- SINAL ----------
-    double imbalanceLongThreshold{65.0};
-    double imbalanceShortThreshold{35.0};
+    double imbalanceLongThreshold{68.0};
+    double imbalanceShortThreshold{32.0};
 
-    double minConfidence{0.60};
+    double minConfidence{0.70};
 
-    // spread máximo permitido em basis points
-    double maxSpreadBps{8.0};
+    double maxSpreadBps{6.0};
+    double maxRecentMoveBps{80.0};
+    double minExpectedMoveBps{45.0};
 
-    // movimento recente máximo permitido em basis points
-    // para evitar entrar quando o preço já andou demais
-    double maxRecentMoveBps{5.0};
+    double minFlowStrength{0.90};
+    double minFlowBiasAbs{0.68};
 
-    // movimento esperado mínimo para validar o sinal
-    double minExpectedMoveBps{10.0};
+    double targetPct{0.70};
+    double stopPct{0.25};
+    long timeoutMs{3600000};
 
-    // ---------- FLOW FILTER ----------
-    // volume agressor mínimo acumulado na janela
-    double minFlowStrength{0.05};
-
-    // viés absoluto mínimo do fluxo (-1 a +1)
-    double minFlowBiasAbs{0.35};
-
-    // ---------- EXECUÇÃO PAPER ----------
-    // alvo e stop em percentual
-    double targetPct{0.30};   // 0.30%
-    double stopPct{0.12};     // 0.12%
-    long timeoutMs{900000};   // 15 minutos
-
-    // ---------- CUSTOS ----------
-    // taxas e slippage simulados, em percentual
-    double feePctPerSide{0.04}; // 0.04% por lado
-    double slippagePctPerSide{0.01}; // 0.01% por lado
+    double feePctPerSide{0.01};
+    double slippagePctPerSide{0.0025};
 };
