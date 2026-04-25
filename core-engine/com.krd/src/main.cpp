@@ -267,8 +267,8 @@ int main() {
     //const long testDurationMs = 15L * 60L * 1000L; // 15 minutos
     //const long testDurationMs = 20L * 60L * 1000L; // 20 minutos
     //const long testDurationMs = 30L * 60L * 1000L; // 30 minutos
-    const long testDurationMs = 60L * 60L * 1000L; // 1 hora
-    //const long testDurationMs = 3L * 60L * 60L * 1000L; // 3 horas
+    //const long testDurationMs = 60L * 60L * 1000L; // 1 hora
+    const long testDurationMs = 3L * 60L * 60L * 1000L; // 3 horas
 
     const std::int64_t testStartMs = nowMs();
     const std::int64_t testEndMs = testStartMs + testDurationMs;

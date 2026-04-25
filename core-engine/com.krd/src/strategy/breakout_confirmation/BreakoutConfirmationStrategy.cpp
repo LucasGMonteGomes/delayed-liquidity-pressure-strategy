@@ -76,14 +76,14 @@ SignalResult BreakoutConfirmationStrategy::evaluate(const StrategyContext& conte
         return result;
     }
 
-    if (result.confidence < 0.70) {
+    if (result.confidence < 0.74) {
         result.side = SignalSide::HOLD;
         result.reason = "breakout confirmation confidence below min";
         result.isValid = false;
         return result;
     }
 
-    if (result.expectedMoveBps < 45.0) {
+    if (result.expectedMoveBps < 48.0) {
         result.side = SignalSide::HOLD;
         result.reason = "breakout confirmation expected move below min";
         result.isValid = false;
@@ -122,12 +122,12 @@ bool BreakoutConfirmationStrategy::isRegimeSupportive(const StrategyContext& con
 
 bool BreakoutConfirmationStrategy::isLongBreakoutConfirmed(const StrategyContext& context) const {
     return context.flowSnapshot.aggressionBias >= 0.68 &&
-           context.flowSnapshot.totalAggressionQty >= 1.15;
+           context.flowSnapshot.totalAggressionQty >= 1.05;
 }
 
 bool BreakoutConfirmationStrategy::isShortBreakoutConfirmed(const StrategyContext& context) const {
     return context.flowSnapshot.aggressionBias <= -0.68 &&
-           context.flowSnapshot.totalAggressionQty >= 1.15;
+           context.flowSnapshot.totalAggressionQty >= 1.05;
 }
 
 bool BreakoutConfirmationStrategy::isLongBookSupportive(const StrategyContext& context) const {
@@ -139,12 +139,12 @@ bool BreakoutConfirmationStrategy::isShortBookSupportive(const StrategyContext& 
 }
 
 bool BreakoutConfirmationStrategy::isLongMoveValid(const StrategyContext& context) const {
-    return context.recentMoveBps >= 1.5 &&
+    return context.recentMoveBps >= 1.35 &&
            context.recentMoveBps <= 10.0;
 }
 
 bool BreakoutConfirmationStrategy::isShortMoveValid(const StrategyContext& context) const {
-    return context.recentMoveBps <= -1.5 &&
+    return context.recentMoveBps <= -1.35 &&
            std::abs(context.recentMoveBps) <= 10.0;
 }
 
