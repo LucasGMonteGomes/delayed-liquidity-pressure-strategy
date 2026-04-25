@@ -9,51 +9,49 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_package(cppzmq CONFIG REQUIRED)
 
 add_executable(core_engine
-        src/main.cpp
-        src/strategy/signal_engine/SignalEngineLite.cpp
-        src/execution/PaperTradeEngine.cpp
-        src/messaging/TradePublisher.cpp
+        com.krd/src/main.cpp
+        com.krd/src/strategy/signal_engine/SignalEngineLite.cpp
+        com.krd/src/execution/PaperTradeEngine.cpp
+        com.krd/src/messaging/TradePublisher.cpp
 
-        src/domain/TradeTick.cpp
-        src/domain/TradeTick.h
-        src/domain/FlowSnapshot.cpp
-        src/domain/FlowSnapshot.h
-        src/domain/SignalCandidate.cpp
-        src/domain/SignalCandidate.h
-        src/domain/RegimeSnapshot.cpp
-        src/domain/RegimeSnapshot.h
+        com.krd/src/domain/TradeTick.cpp
+        com.krd/src/domain/TradeTick.h
+        com.krd/src/domain/FlowSnapshot.cpp
+        com.krd/src/domain/FlowSnapshot.h
+        com.krd/src/domain/SignalCandidate.cpp
+        com.krd/src/domain/SignalCandidate.h
+        com.krd/src/domain/RegimeSnapshot.cpp
+        com.krd/src/domain/RegimeSnapshot.h
 
-        src/flow/AggressionTracker.cpp
-        src/flow/AggressionTracker.h
+        com.krd/src/flow/AggressionTracker.cpp
+        com.krd/src/flow/AggressionTracker.h
 
-        src/persistence/SignalPersistenceFilter.cpp
-        src/persistence/SignalPersistenceFilter.h
+        com.krd/src/persistence/SignalPersistenceFilter.cpp
+        com.krd/src/persistence/SignalPersistenceFilter.h
 
-        src/regime/RegimeFilter.cpp
-        src/regime/RegimeFilter.h
+        com.krd/src/regime/RegimeFilter.cpp
+        com.krd/src/regime/RegimeFilter.h
 
-        src/strategy/common/ISignalStrategy.cpp
-        src/strategy/common/ISignalStrategy.h
-        src/strategy/common/StrategyContext.cpp
-        src/strategy/common/StrategyContext.h
+        com.krd/src/strategy/common/ISignalStrategy.cpp
+        com.krd/src/strategy/common/ISignalStrategy.h
+        com.krd/src/strategy/common/StrategyContext.cpp
+        com.krd/src/strategy/common/StrategyContext.h
 
-        src/execution/ExecutionQualityFilter.cpp
-        src/execution/ExecutionQualityFilter.h
-        src/execution/TradeStatsCollector.cpp
-        src/execution/TradeStatsCollector.h
-        src/execution/TradeCsvWriter.cpp
-        src/execution/TradeCsvWriter.h
-        src/execution/TestSummaryWriter.cpp
-        src/execution/TestSummaryWriter.h
-        src/execution/TestRunPaths.cpp
-        src/execution/TestRunPaths.h
+        com.krd/src/execution/ExecutionQualityFilter.cpp
+        com.krd/src/execution/ExecutionQualityFilter.h
+        com.krd/src/execution/TradeStatsCollector.cpp
+        com.krd/src/execution/TradeStatsCollector.h
+        com.krd/src/execution/TradeCsvWriter.cpp
+        com.krd/src/execution/TradeCsvWriter.h
+        com.krd/src/execution/TestSummaryWriter.cpp
+        com.krd/src/execution/TestSummaryWriter.h
+        com.krd/src/execution/TestRunPaths.cpp
+        com.krd/src/execution/TestRunPaths.h
 
-        src/strategy/regime_hold_continuation/RegimeHoldContinuationStrategy.cpp
-        src/strategy/regime_hold_continuation/RegimeHoldContinuationStrategy.h
-        src/strategy/archive/break_hold_continuation/BreakHoldContinuationStrategy.cpp
-        src/strategy/archive/break_hold_continuation/BreakHoldContinuationStrategy.h
-        src/strategy/breakout_confirmation/BreakoutConfirmationStrategy.cpp
-        src/strategy/breakout_confirmation/BreakoutConfirmationStrategy.h
+        com.krd/src/strategy/regime_hold_continuation/RegimeHoldContinuationStrategy.cpp
+        com.krd/src/strategy/regime_hold_continuation/RegimeHoldContinuationStrategy.h
+        com.krd/src/strategy/breakout_confirmation/BreakoutConfirmationStrategy.cpp
+        com.krd/src/strategy/breakout_confirmation/BreakoutConfirmationStrategy.h
 )
 
 target_include_directories(core_engine PRIVATE

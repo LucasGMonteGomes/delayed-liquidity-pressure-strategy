@@ -121,13 +121,13 @@ bool BreakoutConfirmationStrategy::isRegimeSupportive(const StrategyContext& con
 }
 
 bool BreakoutConfirmationStrategy::isLongBreakoutConfirmed(const StrategyContext& context) const {
-    return context.flowSnapshot.aggressionBias >= 0.65 &&
-           context.flowSnapshot.totalAggressionQty >= 1.0;
+    return context.flowSnapshot.aggressionBias >= 0.68 &&
+           context.flowSnapshot.totalAggressionQty >= 1.15;
 }
 
 bool BreakoutConfirmationStrategy::isShortBreakoutConfirmed(const StrategyContext& context) const {
-    return context.flowSnapshot.aggressionBias <= -0.65 &&
-           context.flowSnapshot.totalAggressionQty >= 1.0;
+    return context.flowSnapshot.aggressionBias <= -0.68 &&
+           context.flowSnapshot.totalAggressionQty >= 1.15;
 }
 
 bool BreakoutConfirmationStrategy::isLongBookSupportive(const StrategyContext& context) const {
@@ -139,12 +139,12 @@ bool BreakoutConfirmationStrategy::isShortBookSupportive(const StrategyContext& 
 }
 
 bool BreakoutConfirmationStrategy::isLongMoveValid(const StrategyContext& context) const {
-    return context.recentMoveBps >= 1.2 &&
+    return context.recentMoveBps >= 1.5 &&
            context.recentMoveBps <= 10.0;
 }
 
 bool BreakoutConfirmationStrategy::isShortMoveValid(const StrategyContext& context) const {
-    return context.recentMoveBps <= -1.2 &&
+    return context.recentMoveBps <= -1.5 &&
            std::abs(context.recentMoveBps) <= 10.0;
 }
 
